@@ -36,14 +36,12 @@ async fn main() -> Result<()> {
 
   println!("Matching domain names to Route 53 hosted zones…");
 
-  let zones: Vec<_> = route53
+  let zones = route53
     .list_hosted_zones()
     .send()
     .await
     .with_context(|| "failed to list Route 53 hosted zones")?
-    .hosted_zones
-    .into_iter()
-    .collect();
+    .hosted_zones;
 
   let mut domain_zones = HashMap::with_capacity(args.domains.len());
 
