@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::{collections::HashMap, net::Ipv4Addr, rc::Rc};
 
 use anyhow::{bail, Context, Result};
 use aws_sdk_route53::{
@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
 
   let args = Args::parse();
 
-  for name in args.domains {
+  for name in &args.domains {
     if name.len() < 3 || !name.contains('.') {
       bail!("invalid domain name {name:?}");
     }
@@ -34,14 +34,36 @@ async fn main() -> Result<()> {
 
   // TODO match domain names to hosted zones
 
-  let zones = route53
+  println!("Matching domain names to Route 53 hosted zones…");
+
+  let zones: Vec<_> = route53
     .list_hosted_zones()
     .send()
     .await
-    .with_context(|| "failed to list Route 53 hosted zones")?;
+    .with_context(|| "failed to list Route 53 hosted zones")?
+    .hosted_zones
+    .into_iter()
+    .collect();
 
-  for zone in zones.hosted_zones() {
-    println!("{} {}", zone.id(), zone.name());
+  let mut domain_zones = HashMap::with_capacity(args.domains.len());
+
+  for name in &args.domains {
+    let Some(zone) = zones
+      .iter()
+      // find hosted zones that could contain this domain name
+      .filter(|z| match name.strip_suffix(z.name.trim_end_matches('.')) {
+        Some(rest) => rest.is_empty() || rest.ends_with('.'),
+        None => false,
+      })
+      // pick the hosted zone with the deepest subdomain match
+      .max_by_key(|z| z.name.len())
+    else {
+      bail!("Cannot find a hosted zone for domain {name:?}.")
+    };
+
+    domain_zones.insert(name.clone(), zone);
+
+    println!("    {name} => {}", zone.name());
   }
 
   // determine current public IP
@@ -52,18 +74,19 @@ async fn main() -> Result<()> {
     .await
     .with_context(|| "failed to get public IP")?;
 
-  println!("Public IP is {public_ip}.");
+  println!("    {public_ip}");
 
   // update DNS records
 
-  upsert_dns_record(
-    &route53,
-    "/hostedzone/Z02543151PNSD5VEK06AZ",
-    "alexfrydl.com",
-    &public_ip,
-  )
-  .await
-  .with_context(|| "failed to update DNS record")?;
+  println!("Updating DNS records…");
+
+  for (domain, zone) in domain_zones {
+    upsert_dns_record(&route53, zone.id(), &domain, &public_ip)
+      .await
+      .with_context(|| format!("failed to update {domain}"))?;
+
+    println!("    {domain}");
+  }
 
   Ok(())
 }
