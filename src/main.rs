@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
   let aws_config = aws_config::load_from_env().await;
   let route53 = route53::Client::new(&aws_config);
 
-  // TODO match domain names to hosted zones
+  // match domain names to hosted zones
 
   println!("Matching domain names to Route 53 hosted zones…");
 
