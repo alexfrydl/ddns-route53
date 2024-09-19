@@ -32,6 +32,18 @@ async fn main() -> Result<()> {
   let aws_config = aws_config::load_from_env().await;
   let route53 = route53::Client::new(&aws_config);
 
+  // run
+
+  let result = run(args, route53).await;
+
+  if result.is_err() {
+    println!(); // easier to read errors
+  }
+
+  result
+}
+
+async fn run(args: Args, route53: route53::Client) -> Result<()> {
   // match domain names to hosted zones
 
   println!("Matching domain names to Route 53 hosted zones…");
@@ -61,7 +73,7 @@ async fn main() -> Result<()> {
 
     domain_zones.insert(name.clone(), zone);
 
-    println!("    {name} => {}", zone.name());
+    println!("  {name}: {}", zone.name());
   }
 
   // determine current public IP
@@ -72,7 +84,7 @@ async fn main() -> Result<()> {
     .await
     .with_context(|| "failed to get public IP")?;
 
-  println!("    {public_ip}");
+  println!("  public_ip: {public_ip}");
 
   // update DNS records
 
@@ -83,7 +95,7 @@ async fn main() -> Result<()> {
       .await
       .with_context(|| format!("failed to update {domain}"))?;
 
-    println!("    {domain}");
+    println!("  - {domain}");
   }
 
   Ok(())
