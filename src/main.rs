@@ -1,54 +1,96 @@
-use anyhow::Result;
+use std::net::Ipv4Addr;
+
+use anyhow::{bail, Context, Result};
 use aws_sdk_route53::{
   self as route53,
   types::{Change, ChangeAction::Upsert, ChangeBatch, ResourceRecord, ResourceRecordSet, RrType},
 };
+use clap::Parser;
+
+#[derive(Parser)]
+#[command(version, about)]
+struct Args {
+  /// Domain names to update
+  #[arg(required = true)]
+  domains: Vec<String>,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  let shared_config = aws_config::load_from_env().await;
-  let route53 = route53::Client::new(&shared_config);
-  let zones = route53.list_hosted_zones().send().await?;
+  // parse and validate args
+
+  let args = Args::parse();
+
+  for name in args.domains {
+    if name.len() < 3 || !name.contains('.') {
+      bail!("invalid domain name {name:?}");
+    }
+  }
+
+  // initialize route53 client
+
+  let aws_config = aws_config::load_from_env().await;
+  let route53 = route53::Client::new(&aws_config);
+
+  // TODO match domain names to hosted zones
+
+  let zones = route53
+    .list_hosted_zones()
+    .send()
+    .await
+    .with_context(|| "failed to list Route 53 hosted zones")?;
 
   for zone in zones.hosted_zones() {
     println!("{} {}", zone.id(), zone.name());
   }
 
-  let mut prev_ip = None;
+  // determine current public IP
 
-  loop {
-    let public_ip = get_public_ip().await?;
+  println!("Checking public IP…");
 
-    if prev_ip.as_ref() == Some(&public_ip) {
-      continue;
-    }
+  let public_ip = get_public_ip()
+    .await
+    .with_context(|| "failed to get public IP")?;
 
-    println!("{public_ip:?}");
+  println!("Public IP is {public_ip}.");
 
-    upsert_dns_record(
-      &route53,
-      "/hostedzone/Z02543151PNSD5VEK06AZ",
-      "alexfrydl.com",
-      &public_ip,
-    )
-    .await?;
+  // update DNS records
 
-    prev_ip = Some(public_ip);
-
-    break;
-  }
+  upsert_dns_record(
+    &route53,
+    "/hostedzone/Z02543151PNSD5VEK06AZ",
+    "alexfrydl.com",
+    &public_ip,
+  )
+  .await
+  .with_context(|| "failed to update DNS record")?;
 
   Ok(())
 }
 
+/// Gets current public IP using an HTTP API.
 async fn get_public_ip() -> Result<String> {
-  let mut ip = reqwest::get("https://api.ipify.org").await?.text().await?;
+  // request IP from API
 
-  ip.truncate(ip.trim_end().len());
+  let mut ip_string = reqwest::get("https://api.ipify.org")
+    .await
+    .with_context(|| "request failed")?
+    .text()
+    .await
+    .with_context(|| "request failed")?;
 
-  Ok(ip)
+  // validate IP address
+
+  ip_string.truncate(16);
+
+  let addr: Ipv4Addr = ip_string
+    .parse()
+    .with_context(|| format!("invalid response {ip_string:?}"))?;
+
+  Ok(addr.to_string())
 }
 
+/// Creates or updates an A record in Route 53.
 async fn upsert_dns_record(
   route53: &route53::Client,
   zone_id: impl Into<String>,
