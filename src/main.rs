@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::Ipv4Addr, rc::Rc};
+use std::{collections::HashMap, net::Ipv4Addr};
 
 use anyhow::{bail, Context, Result};
 use aws_sdk_route53::{
