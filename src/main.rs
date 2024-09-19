@@ -70,24 +70,13 @@ async fn main() -> Result<()> {
 
 /// Gets current public IP using an HTTP API.
 async fn get_public_ip() -> Result<String> {
-  // request IP from API
-
-  let mut ip_string = reqwest::get("https://api.ipify.org")
-    .await
-    .with_context(|| "request failed")?
-    .text()
-    .await
-    .with_context(|| "request failed")?;
-
-  // validate IP address
+  let mut ip_string = reqwest::get("https://ip.me").await?.text().await?;
 
   ip_string.truncate(16);
+  ip_string = ip_string.trim().to_string();
+  ip_string.parse::<Ipv4Addr>()?;
 
-  let addr: Ipv4Addr = ip_string
-    .parse()
-    .with_context(|| format!("invalid response {ip_string:?}"))?;
-
-  Ok(addr.to_string())
+  Ok(ip_string)
 }
 
 /// Creates or updates an A record in Route 53.
