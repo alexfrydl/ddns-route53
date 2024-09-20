@@ -1,6 +1,6 @@
 # ddns-route53
 
-A tiny daemon that implements Dynamic DNS with Route 53 by updating DNS records with your public IP whenever it changes.
+A tiny daemon that implements Dynamic DNS with Route 53, updating DNS records with your public IP whenever it changes.
 
 ## Example
 
