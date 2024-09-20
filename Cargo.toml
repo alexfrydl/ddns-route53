@@ -1,6 +1,6 @@
 [package]
 name = "ddns-route53"
-description = "Tiny daemon that sets DNS records in AWS Route 53 to the local host's public IP."
+description = "A tiny daemon that updates DNS records in AWS Route 53 with your public IP whenever it changes."
 version = "0.1.0"
 edition = "2021"
 
