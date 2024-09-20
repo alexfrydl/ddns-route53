@@ -30,12 +30,12 @@ macro_rules! log_err {
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
-  /// Domain names to update
+  /// Domain names to update.
   #[arg(required = true)]
   domains: Vec<String>,
-  /// Run as a daemon that updates DNS records whenever the public IP changes.
+  /// Run as a command instead of a daemon (update DNS records once and then exit).
   #[arg(short, long)]
-  daemon: bool,
+  once: bool,
 }
 
 struct App {
@@ -73,7 +73,7 @@ impl App {
 
     Ok(Self {
       domains,
-      is_daemon: args.daemon,
+      is_daemon: !args.once,
       public_ip: String::new(),
       route53,
     })
