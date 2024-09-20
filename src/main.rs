@@ -88,7 +88,7 @@ impl App {
         return;
       }
 
-      tokio::time::sleep(Duration::from_secs(5)).await;
+      tokio::time::sleep(Duration::from_secs(300)).await;
     }
   }
 
