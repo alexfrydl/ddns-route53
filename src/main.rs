@@ -49,8 +49,23 @@ struct Domain {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  App::new(Args::parse()).await?.run().await;
-  Ok(())
+  let args = Args::parse();
+  let mut app = App::new(args).await?;
+
+  loop {
+    if let Err(err) = app
+      .refresh_public_ip()
+      .await
+      .with_context(|| "Failed to determine public IP.")
+    {
+      log_err!("{err:?}");
+      continue;
+    }
+
+    app.update_dns().await;
+
+    tokio::time::sleep(Duration::from_secs(300)).await;
+  }
 }
 
 impl App {
@@ -59,7 +74,7 @@ impl App {
 
     for name in args.domains {
       if name.len() < 3 || !name.contains('.') {
-        bail!("invalid domain name {name:?}");
+        bail!("Invalid domain name {name:?}.");
       }
 
       domains.push(Domain::new(name));
@@ -75,46 +90,24 @@ impl App {
     })
   }
 
-  async fn run(&mut self) {
-    loop {
-      self.refresh_public_ip().await;
-      self.update_dns().await;
+  async fn refresh_public_ip(&mut self) -> Result<()> {
+    let mut ip = reqwest::get("https://api.ipify.org").await?.text().await?;
 
-      tokio::time::sleep(Duration::from_secs(300)).await;
-    }
-  }
+    ip.truncate(16);
+    ip = ip.trim().to_string();
+    ip.parse::<Ipv4Addr>()?;
 
-  async fn refresh_public_ip(&mut self) {
-    match get()
-      .await
-      .with_context(|| "Failed to determine public IP.")
-    {
-      Ok(ip) => {
-        if ip != self.current_ip {
-          if self.current_ip.is_empty() {
-            log!("Public IP is {ip}.");
-          } else {
-            log!("Public IP has changed to {ip}.");
-          }
-        }
-
-        self.current_ip = ip;
+    if ip != self.current_ip {
+      if self.current_ip.is_empty() {
+        log!("Public IP is {ip}.");
+      } else {
+        log!("Public IP has changed to {ip}.");
       }
 
-      Err(err) => {
-        log_err!("{err:?}");
-      }
+      self.current_ip = ip;
     }
 
-    async fn get() -> Result<String> {
-      let mut ip_string = reqwest::get("https://api.ipify.org").await?.text().await?;
-
-      ip_string.truncate(16);
-      ip_string = ip_string.trim().to_string();
-      ip_string.parse::<Ipv4Addr>()?;
-
-      Ok(ip_string)
-    }
+    Ok(())
   }
 
   async fn update_dns(&mut self) {
