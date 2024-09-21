@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::Ipv4Addr, process::exit, time::Duration};
+use std::{collections::HashMap, net::Ipv4Addr, time::Duration};
 
 use anyhow::{bail, Context, Result};
 use aws_sdk_route53::{
@@ -33,14 +33,10 @@ struct Args {
   /// Domain names to update.
   #[arg(required = true)]
   domains: Vec<String>,
-  /// Run as a command instead of a daemon (update DNS records once and then exit).
-  #[arg(short, long)]
-  once: bool,
 }
 
 struct App {
   domains: HashMap<String, Domain>,
-  is_daemon: bool,
   public_ip: String,
   route53: route53::Client,
 }
@@ -73,7 +69,6 @@ impl App {
 
     Ok(Self {
       domains,
-      is_daemon: !args.once,
       public_ip: String::new(),
       route53,
     })
@@ -83,10 +78,6 @@ impl App {
     loop {
       self.refresh_public_ip().await;
       self.update_dns().await;
-
-      if !self.is_daemon {
-        return;
-      }
 
       tokio::time::sleep(Duration::from_secs(300)).await;
     }
@@ -115,10 +106,6 @@ impl App {
 
       Err(err) => {
         log_err!("{err:?}");
-
-        if !self.is_daemon {
-          exit(1);
-        }
       }
     }
 
@@ -151,19 +138,14 @@ impl App {
 
       Err(err) => {
         log_err!("{err:?}");
-
-        if !self.is_daemon {
-          exit(1);
-        }
-
         return;
       }
     };
 
     // match domain names to hosted zones
 
-    for (name, state) in &mut self.domains {
-      if !state.needs_update {
+    for (name, domain) in &mut self.domains {
+      if !domain.needs_update {
         continue;
       }
 
@@ -178,39 +160,30 @@ impl App {
         .max_by_key(|z| z.name.len())
       else {
         log_err!("Cannot find a hosted zone for `{name}`.");
-
-        if !self.is_daemon {
-          exit(1);
-        }
-
         continue;
       };
 
-      state.zone_id.replace_range(.., &zone.id);
+      domain.zone_id.replace_range(.., &zone.id);
     }
 
     // update DNS records
 
-    for (name, state) in &mut self.domains {
-      if !state.needs_update || state.zone_id.is_empty() {
+    for (name, domain) in &mut self.domains {
+      if !domain.needs_update || domain.zone_id.is_empty() {
         continue;
       }
 
-      match upsert(&self.route53, &state.zone_id, name, &self.public_ip)
+      match upsert(&self.route53, &domain.zone_id, name, &self.public_ip)
         .await
         .with_context(|| format!("Failed to update `{name}`."))
       {
         Ok(()) => {
-          state.needs_update = false;
+          domain.needs_update = false;
           log!("Updated `{name}` to {}.", &self.public_ip);
         }
 
         Err(err) => {
           log_err!("{err:?}");
-
-          if !self.is_daemon {
-            exit(1);
-          }
         }
       }
     }
