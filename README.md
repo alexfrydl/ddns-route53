@@ -8,10 +8,10 @@ This can be used to implement [dynamic DNS][1] for your own domains.
 ## Example
 
 ```
-> ddns-route53 example1.com example2.com
+> ddns-route53 example1.com test.example2.com
 [2024-09-20 19:24:12] Public IP is 123.123.123.123.
 [2024-09-20 19:24:12] Updated `example1.com` to 123.123.123.123.
-[2024-09-20 19:24:12] Updated `example2.com` to 123.123.123.123.
+[2024-09-20 19:24:12] Updated `test.example2.com` to 123.123.123.123.
 ```
 
 ## Details
