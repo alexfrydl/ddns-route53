@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::Ipv4Addr, time::Duration};
+use std::{net::Ipv4Addr, time::Duration};
 
 use anyhow::{bail, Context, Result};
 use aws_sdk_route53::{
@@ -36,13 +36,14 @@ struct Args {
 }
 
 struct App {
-  domains: HashMap<String, Domain>,
-  public_ip: String,
+  current_ip: String,
+  domains: Vec<Domain>,
   route53: route53::Client,
 }
 
 struct Domain {
-  needs_update: bool,
+  current_ip: String,
+  name: String,
   zone_id: String,
 }
 
@@ -54,14 +55,14 @@ async fn main() -> Result<()> {
 
 impl App {
   async fn new(args: Args) -> Result<Self> {
-    let mut domains = HashMap::new();
+    let mut domains = Vec::with_capacity(args.domains.len());
 
     for name in args.domains {
       if name.len() < 3 || !name.contains('.') {
         bail!("invalid domain name {name:?}");
       }
 
-      domains.insert(name, Domain::new());
+      domains.push(Domain::new(name));
     }
 
     let aws_config = aws_config::load_from_env().await;
@@ -69,7 +70,7 @@ impl App {
 
     Ok(Self {
       domains,
-      public_ip: String::new(),
+      current_ip: String::new(),
       route53,
     })
   }
@@ -89,19 +90,15 @@ impl App {
       .with_context(|| "Failed to determine public IP.")
     {
       Ok(ip) => {
-        if ip != self.public_ip {
-          if self.public_ip.is_empty() {
+        if ip != self.current_ip {
+          if self.current_ip.is_empty() {
             log!("Public IP is {ip}.");
           } else {
             log!("Public IP has changed to {ip}.");
           }
-
-          for domain in self.domains.values_mut() {
-            domain.needs_update = true;
-          }
         }
 
-        self.public_ip = ip;
+        self.current_ip = ip;
       }
 
       Err(err) => {
@@ -121,7 +118,7 @@ impl App {
   }
 
   async fn update_dns(&mut self) {
-    if !self.domains.values().any(|d| d.needs_update) {
+    if !self.domains.iter().any(|d| d.current_ip != self.current_ip) {
       return;
     }
 
@@ -144,22 +141,24 @@ impl App {
 
     // match domain names to hosted zones
 
-    for (name, domain) in &mut self.domains {
-      if !domain.needs_update {
+    for domain in &mut self.domains {
+      if domain.current_ip == self.current_ip {
         continue;
       }
 
       let Some(zone) = zones
         .iter()
         // find hosted zones that could contain this domain name
-        .filter(|z| match name.strip_suffix(z.name.trim_end_matches('.')) {
-          Some(rest) => rest.is_empty() || rest.ends_with('.'),
-          None => false,
-        })
+        .filter(
+          |z| match domain.name.strip_suffix(z.name.trim_end_matches('.')) {
+            Some(rest) => rest.is_empty() || rest.ends_with('.'),
+            None => false,
+          },
+        )
         // pick the hosted zone with the deepest subdomain match
-        .max_by_key(|z| z.name.len())
+        .max_by_key(|zone| zone.name.len())
       else {
-        log_err!("Cannot find a hosted zone for `{name}`.");
+        log_err!("Cannot find a hosted zone for `{}`.", domain.name);
         continue;
       };
 
@@ -168,18 +167,23 @@ impl App {
 
     // update DNS records
 
-    for (name, domain) in &mut self.domains {
-      if !domain.needs_update || domain.zone_id.is_empty() {
+    for domain in &mut self.domains {
+      if domain.zone_id.is_empty() || domain.current_ip == self.current_ip {
         continue;
       }
 
-      match upsert(&self.route53, &domain.zone_id, name, &self.public_ip)
-        .await
-        .with_context(|| format!("Failed to update `{name}`."))
+      match upsert(
+        &self.route53,
+        &domain.zone_id,
+        &domain.name,
+        &self.current_ip,
+      )
+      .await
+      .with_context(|| format!("Failed to update `{}`.", domain.name))
       {
         Ok(()) => {
-          domain.needs_update = false;
-          log!("Updated `{name}` to {}.", &self.public_ip);
+          domain.current_ip.replace_range(.., &self.current_ip);
+          log!("Updated `{}` to {}.", domain.name, self.current_ip);
         }
 
         Err(err) => {
@@ -188,12 +192,7 @@ impl App {
       }
     }
 
-    async fn upsert(
-      route53: &route53::Client,
-      zone_id: impl Into<String>,
-      name: impl Into<String>,
-      ip: impl Into<String>,
-    ) -> Result<()> {
+    async fn upsert(route53: &route53::Client, zone_id: &str, name: &str, ip: &str) -> Result<()> {
       route53
         .change_resource_record_sets()
         .hosted_zone_id(zone_id)
@@ -223,10 +222,11 @@ impl App {
 }
 
 impl Domain {
-  const fn new() -> Self {
+  const fn new(name: String) -> Self {
     Self {
-      needs_update: true,
+      name,
       zone_id: String::new(),
+      current_ip: String::new(),
     }
   }
 }
