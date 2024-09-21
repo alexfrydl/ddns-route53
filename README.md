@@ -3,7 +3,7 @@
 A tiny daemon that monitors the host's public IP for changes and updates one or
 more records in Amazon Route 53.
 
-This can be used to implement “[dynamic DNS][1]” for your own domains.
+This can be used to implement [dynamic DNS][1] for your own domains.
 
 ## Example
 
