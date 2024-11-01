@@ -19,7 +19,7 @@ This can be used to implement [dynamic DNS][1] for your own domains.
 ```yaml
 services:
   app:
-    build: .
+    image: alexfrydl/ddns-route53
     restart: unless-stopped
     environment:
       AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
