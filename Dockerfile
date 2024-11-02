@@ -4,6 +4,6 @@ COPY . .
 RUN cargo install --path . --root /
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y openssl
+RUN apt-get update && apt-get install -y openssl ca-certificates
 COPY --from=builder /bin/ddns-route53 /bin/
-CMD ["ddns-route53"]
+ENTRYPOINT ["ddns-route53"]
